@@ -97,15 +97,3 @@ while True:
             "din3": din[3].value,
         }
 
-        payload = json.dumps(data)
-        print("Publishing:", payload)
-
-        try:
-            mqtt.publish(MQTT_PUB_TOPIC, payload)
-        except Exception as e:
-            print("Publish failed:", e)
-            mqtt_connected = False
-
-        last_pub = time.monotonic()
-
-    time.sleep(0.1)
