@@ -1,107 +1,70 @@
 import time
 import os
 import json
-import board
 import digitalio
-import busio
+import board
 
 import adafruit_minimqtt.adafruit_minimqtt as MQTT
-import adafruit_wiznet5k.adafruit_wiznet5k as wiznet
 import adafruit_wiznet5k.adafruit_wiznet5k_socketpool as socket
+import adafruit_wiznet5k.adafruit_wiznet5k as wiznet
 
-print("\n=== APP START ===")
+print("\n=== APP SAFE MODE ===")
 
-# ==============================
-# 📥 Load config
-# ==============================
-def safe_get(key, required=True):
-    val = os.getenv(key)
-    if required and val is None:
-        print("Missing:", key)
-        while True:
-            pass
-    return val
-
-DEVICE_ID = safe_get("DEVICE_ID")
-BASE_TOPIC = safe_get("BASE_TOPIC")
-
-MQTT_BROKER = safe_get("MQTT_BROKER")
-MQTT_PORT = int(safe_get("MQTT_PORT"))
-MQTT_USERNAME = os.getenv("MQTT_USERNAME")
-MQTT_PASSWORD = os.getenv("MQTT_PASSWORD")
-
-TOPIC = f"{BASE_TOPIC}/{DEVICE_ID}"
-
-# ==============================
-# 🌐 Ethernet (reuse)
-# ==============================
-spi = busio.SPI(board.SCK, MOSI=board.MOSI, MISO=board.MISO)
-cs = digitalio.DigitalInOut(board.W5500_CS)
-rst = digitalio.DigitalInOut(board.W5500_RST)
-
-eth = wiznet.WIZNET5K(spi, cs, rst)
+# reuse existing ethernet (NO reinit risk)
+eth = wiznet.WIZNET5K.get_instance()
 pool = socket.SocketPool(eth)
 
-print("IP:", eth.pretty_ip(eth.ip_address))
+DEVICE_ID = os.getenv("DEVICE_ID")
+TOPIC = os.getenv("BASE_TOPIC") + "/" + DEVICE_ID
 
-# ==============================
-# 📡 MQTT
-# ==============================
-def on_connect(client, userdata, flags, rc):
-    print("MQTT connected")
-
+# MQTT (safe reconnect)
 mqtt = MQTT.MQTT(
-    broker=MQTT_BROKER,
-    port=MQTT_PORT,
-    username=MQTT_USERNAME,
-    password=MQTT_PASSWORD,
+    broker=os.getenv("MQTT_BROKER"),
+    port=int(os.getenv("MQTT_PORT")),
+    username=os.getenv("MQTT_USERNAME"),
+    password=os.getenv("MQTT_PASSWORD"),
     client_id=DEVICE_ID,
     socket_pool=pool,
 )
 
-mqtt.on_connect = on_connect
+try:
+    mqtt.connect()
+except:
+    pass
 
-while True:
-    try:
-        mqtt.connect()
-        break
-    except:
-        time.sleep(2)
-
-# ==============================
-# 🔌 DIN
-# ==============================
+# DIN setup
 pins = [board.GP0, board.GP1, board.GP2, board.GP3]
 din = []
 
 for p in pins:
-    pin = digitalio.DigitalInOut(p)
-    pin.direction = digitalio.Direction.INPUT
-    pin.pull = digitalio.Pull.UP
-    din.append(pin)
+    d = digitalio.DigitalInOut(p)
+    d.direction = digitalio.Direction.INPUT
+    d.pull = digitalio.Pull.UP
+    din.append(d)
 
-# ==============================
-# 🔁 Loop
-# ==============================
+# loop
 last = 0
 
 while True:
-    mqtt.loop()
+    try:
+        mqtt.loop()
+    except:
+        try:
+            mqtt.connect()
+        except:
+            pass
 
     if time.monotonic() - last > 2:
+
         data = {
-            "device": DEVICE_ID,
             "din0": din[0].value,
             "din1": din[1].value,
             "din2": din[2].value,
             "din3": din[3].value,
         }
 
-        payload = json.dumps(data)
-        print(payload)
-
         try:
-            mqtt.publish(TOPIC, payload)
+            mqtt.publish(TOPIC, json.dumps(data))
         except:
             pass
 
