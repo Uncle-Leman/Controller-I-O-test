@@ -1,38 +1,31 @@
 import time
 import os
 import json
-import board
 import digitalio
-import busio
+import board
 
 import adafruit_minimqtt.adafruit_minimqtt as MQTT
-import adafruit_wiznet5k.adafruit_wiznet5k as wiznet
-import adafruit_wiznet5k.adafruit_wiznet5k_socketpool as socket
 
 print("\n=== APP SAFE MODE ===")
 
 # ======================
-# 🌐 Ethernet (REINIT SAFELY)
+# 🌐 USE EXISTING NETWORK
 # ======================
 try:
-    spi = busio.SPI(board.SCK, MOSI=board.MOSI, MISO=board.MISO)
-    cs = digitalio.DigitalInOut(board.W5500_CS)
-    rst = digitalio.DigitalInOut(board.W5500_RST)
+    import global_net
+    pool = global_net["pool"]
+    eth = global_net["eth"]
 
-    eth = wiznet.WIZNET5K(spi, cs, rst)
-
-    print("Ethernet OK:", eth.pretty_ip(eth.ip_address))
+    print("Using shared Ethernet:", eth.pretty_ip(eth.ip_address))
 
 except Exception as e:
-    print("Ethernet init failed:", e)
+    print("Network not available:", e)
     while True:
         time.sleep(5)
 
 # ======================
 # 📡 MQTT SETUP
 # ======================
-pool = socket.SocketPool(eth)
-
 DEVICE_ID = os.getenv("DEVICE_ID") or "unknown"
 BASE_TOPIC = os.getenv("BASE_TOPIC") or "test/device"
 TOPIC = BASE_TOPIC + "/" + DEVICE_ID
