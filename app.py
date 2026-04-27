@@ -1,33 +1,41 @@
 import time
 import os
 import json
-import digitalio
 import board
+import digitalio
+import busio
 
 import adafruit_minimqtt.adafruit_minimqtt as MQTT
+import adafruit_wiznet5k.adafruit_wiznet5k as wiznet
+import adafruit_wiznet5k.adafruit_wiznet5k_socketpool as socket
 
-print("\n=== APP SAFE MODE ===")
-
-# ======================
-# 🌐 USE EXISTING NETWORK
-# ======================
-try:
-    import global_net
-    pool = global_net["pool"]
-    eth = global_net["eth"]
-
-    print("Using shared Ethernet:", eth.pretty_ip(eth.ip_address))
-
-except Exception as e:
-    print("Network not available:", e)
-    while True:
-        time.sleep(5)
+print("\n=== APP START ===")
 
 # ======================
-# 📡 MQTT SETUP
+# 🌐 Ethernet (ONLY HERE)
 # ======================
-DEVICE_ID = os.getenv("DEVICE_ID") or "unknown"
-BASE_TOPIC = os.getenv("BASE_TOPIC") or "test/device"
+while True:
+    try:
+        spi = busio.SPI(board.SCK, MOSI=board.MOSI, MISO=board.MISO)
+        cs = digitalio.DigitalInOut(board.W5500_CS)
+        rst = digitalio.DigitalInOut(board.W5500_RST)
+
+        eth = wiznet.WIZNET5K(spi, cs, rst)
+
+        print("Ethernet OK:", eth.pretty_ip(eth.ip_address))
+        break
+
+    except Exception as e:
+        print("Ethernet retry:", e)
+        time.sleep(2)
+
+# ======================
+# 📡 MQTT
+# ======================
+pool = socket.SocketPool(eth)
+
+DEVICE_ID = os.getenv("DEVICE_ID") or "01"
+BASE_TOPIC = os.getenv("BASE_TOPIC") or "factory/ioc"
 TOPIC = BASE_TOPIC + "/" + DEVICE_ID
 
 mqtt = MQTT.MQTT(
@@ -39,19 +47,19 @@ mqtt = MQTT.MQTT(
     socket_pool=pool,
 )
 
-# connect safely
+# connect loop
 while True:
     try:
         print("Connecting MQTT...")
         mqtt.connect()
-        print("MQTT Connected")
+        print("MQTT connected")
         break
     except Exception as e:
         print("MQTT retry:", e)
         time.sleep(2)
 
 # ======================
-# 🔌 DIN SETUP
+# 🔌 DIN
 # ======================
 pins = [board.GP0, board.GP1, board.GP2, board.GP3]
 din = []
@@ -63,7 +71,7 @@ for p in pins:
     din.append(d)
 
 # ======================
-# 🔁 MAIN LOOP
+# 🔁 LOOP
 # ======================
 last = 0
 
