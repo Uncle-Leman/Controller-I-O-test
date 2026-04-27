@@ -1,38 +1,65 @@
 import time
 import os
 import json
-import digitalio
 import board
+import digitalio
+import busio
 
 import adafruit_minimqtt.adafruit_minimqtt as MQTT
-import adafruit_wiznet5k.adafruit_wiznet5k_socketpool as socket
 import adafruit_wiznet5k.adafruit_wiznet5k as wiznet
+import adafruit_wiznet5k.adafruit_wiznet5k_socketpool as socket
 
 print("\n=== APP SAFE MODE ===")
 
-# reuse existing ethernet (NO reinit risk)
-eth = wiznet.WIZNET5K.get_instance()
+# ======================
+# 🌐 Ethernet (REINIT SAFELY)
+# ======================
+try:
+    spi = busio.SPI(board.SCK, MOSI=board.MOSI, MISO=board.MISO)
+    cs = digitalio.DigitalInOut(board.W5500_CS)
+    rst = digitalio.DigitalInOut(board.W5500_RST)
+
+    eth = wiznet.WIZNET5K(spi, cs, rst)
+
+    print("Ethernet OK:", eth.pretty_ip(eth.ip_address))
+
+except Exception as e:
+    print("Ethernet init failed:", e)
+    while True:
+        time.sleep(5)
+
+# ======================
+# 📡 MQTT SETUP
+# ======================
 pool = socket.SocketPool(eth)
 
-DEVICE_ID = os.getenv("DEVICE_ID")
-TOPIC = os.getenv("BASE_TOPIC") + "/" + DEVICE_ID
+DEVICE_ID = os.getenv("DEVICE_ID") or "unknown"
+BASE_TOPIC = os.getenv("BASE_TOPIC") or "test/device"
+TOPIC = BASE_TOPIC + "/" + DEVICE_ID
 
-# MQTT (safe reconnect)
 mqtt = MQTT.MQTT(
     broker=os.getenv("MQTT_BROKER"),
-    port=int(os.getenv("MQTT_PORT")),
+    port=int(os.getenv("MQTT_PORT") or 1883),
     username=os.getenv("MQTT_USERNAME"),
     password=os.getenv("MQTT_PASSWORD"),
     client_id=DEVICE_ID,
     socket_pool=pool,
 )
 
-try:
-    mqtt.connect()
-except:
-    pass
+# connect safely
+while True:
+    try:
+        print("Connecting MQTT...")
+        mqtt.connect()
+        print("MQTT Connected")
+        break
+    except Exception as e:
+        print("MQTT retry:", e)
+        time.sleep(2)
 
-# DIN setup
+# ======================
+# 🔌 DIN SETUP
+# ======================
 pins = [board.GP0, board.GP1, board.GP2, board.GP3]
 din = []
 
@@ -42,7 +69,9 @@ for p in pins:
     d.pull = digitalio.Pull.UP
     din.append(d)
 
-# loop
+# ======================
+# 🔁 MAIN LOOP
+# ======================
 last = 0
 
 while True:
@@ -55,18 +84,21 @@ while True:
             pass
 
     if time.monotonic() - last > 2:
-
         data = {
+            "device": DEVICE_ID,
             "din0": din[0].value,
             "din1": din[1].value,
             "din2": din[2].value,
             "din3": din[3].value,
         }
 
+        payload = json.dumps(data)
+        print(payload)
+
         try:
-            mqtt.publish(TOPIC, json.dumps(data))
-        except:
-            pass
+            mqtt.publish(TOPIC, payload)
+        except Exception as e:
+            print("Publish error:", e)
 
         last = time.monotonic()
 
