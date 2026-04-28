@@ -3,37 +3,15 @@ import os
 import json
 import board
 import digitalio
-import busio
 
 import adafruit_minimqtt.adafruit_minimqtt as MQTT
-import adafruit_wiznet5k.adafruit_wiznet5k as wiznet
-import adafruit_wiznet5k.adafruit_wiznet5k_socketpool as socket
 
-print("\n=== APP START ===")
 
-# ======================
-# 🌐 Ethernet (ONLY HERE)
-# ======================
-while True:
-    try:
-        spi = busio.SPI(board.SCK, MOSI=board.MOSI, MISO=board.MISO)
-        cs = digitalio.DigitalInOut(board.W5500_CS)
-        rst = digitalio.DigitalInOut(board.W5500_RST)
-
-        eth = wiznet.WIZNET5K(spi, cs, rst)
-
-        print("Ethernet OK:", eth.pretty_ip(eth.ip_address))
-        break
-
-    except Exception as e:
-        print("Ethernet retry:", e)
-        time.sleep(2)
+print("\n=== REMOTE APP START ===")
 
 # ======================
-# 📡 MQTT
+# MQTT
 # ======================
-pool = socket.SocketPool(eth)
-
 DEVICE_ID = os.getenv("DEVICE_ID") or "01"
 BASE_TOPIC = os.getenv("BASE_TOPIC") or "factory/ioc"
 TOPIC = BASE_TOPIC + "/" + DEVICE_ID
@@ -44,10 +22,9 @@ mqtt = MQTT.MQTT(
     username=os.getenv("MQTT_USERNAME"),
     password=os.getenv("MQTT_PASSWORD"),
     client_id=DEVICE_ID,
-    socket_pool=pool,
+    socket_pool=pool,   # pool comes from code.py
 )
 
-# connect loop
 while True:
     try:
         print("Connecting MQTT...")
@@ -58,8 +35,9 @@ while True:
         print("MQTT retry:", e)
         time.sleep(2)
 
+
 # ======================
-# 🔌 DIN
+# DIN
 # ======================
 pins = [board.GP0, board.GP1, board.GP2, board.GP3]
 din = []
@@ -70,19 +48,22 @@ for p in pins:
     d.pull = digitalio.Pull.UP
     din.append(d)
 
+
 # ======================
-# 🔁 LOOP
+# Main loop
 # ======================
 last = 0
 
 while True:
     try:
         mqtt.loop()
-    except:
+    except Exception as e:
+        print("MQTT loop error:", e)
+
         try:
             mqtt.connect()
-        except:
-            pass
+        except Exception as e:
+            print("MQTT reconnect failed:", e)
 
     if time.monotonic() - last > 2:
         data = {
