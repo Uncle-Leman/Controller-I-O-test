@@ -1,87 +1,97 @@
 import time
-import gc
-import machine
 import json
-
+from machine import Pin
 from umqtt.simple import MQTTClient
 
 import config
 
 
-mqtt = None
-mqtt_fail_count = 0
+print("\n=== REMOTE APP START ===")
 
 
-def cleanup_mqtt():
-    global mqtt
+# ======================
+# MQTT CONFIG
+# ======================
+DEVICE_ID = config.DEVICE_ID
+BASE_TOPIC = config.BASE_TOPIC
+TOPIC = BASE_TOPIC + "/" + DEVICE_ID
 
-    print("Cleaning MQTT...")
-
-    if mqtt is not None:
-        try:
-            mqtt.disconnect()
-        except Exception:
-            pass
-
-        try:
-            mqtt.sock.close()
-        except Exception:
-            pass
-
-    mqtt = None
-    gc.collect()
+MQTT_BROKER = config.MQTT_BROKER
+MQTT_PORT = config.MQTT_PORT
+MQTT_USERNAME = config.MQTT_USERNAME
+MQTT_PASSWORD = config.MQTT_PASSWORD
 
 
+# ======================
+# MQTT CONNECT
+# ======================
 def connect_mqtt():
-    global mqtt, mqtt_fail_count
+    client = MQTTClient(
+        client_id=DEVICE_ID,
+        server=MQTT_BROKER,
+        port=MQTT_PORT,
+        user=MQTT_USERNAME,
+        password=MQTT_PASSWORD,
+        keepalive=60
+    )
 
-    cleanup_mqtt()
-
-    print("Connecting MQTT...")
-
-    try:
-        mqtt = MQTTClient(
-            client_id=config.MQTT_CLIENT_ID,
-            server=config.MQTT_BROKER,
-            port=config.MQTT_PORT,
-            keepalive=30
-        )
-
-        mqtt.connect()
-        mqtt_fail_count = 0
-        print("MQTT connected")
-        return True
-
-    except Exception as e:
-        mqtt_fail_count += 1
-        print("MQTT retry:", e)
-        cleanup_mqtt()
-        time.sleep(5)
-        return False
-
-
-def publish_safe(topic, payload):
-    global mqtt, mqtt_fail_count
-
-    if mqtt is None:
-        if not connect_mqtt():
-            return False
-
-    try:
-        mqtt.publish(topic, payload)
-        print(payload)
-        mqtt_fail_count = 0
-        return True
-
-    except Exception as e:
-        mqtt_fail_count += 1
-        print("Publish error:", e)
-
-        cleanup_mqtt()
-
-        if mqtt_fail_count >= 10:
-            print("Too many MQTT failures. Rebooting...")
+    while True:
+        try:
+            print("Connecting MQTT...")
+            client.connect()
+            print("MQTT connected")
+            return client
+        except Exception as e:
+            print("MQTT retry:", e)
             time.sleep(2)
-            machine.reset()
 
-        return False
+
+mqtt = connect_mqtt()
+
+
+# ======================
+# DIN
+# ======================
+pins = [
+    Pin(0, Pin.IN, Pin.PULL_UP),
+    Pin(1, Pin.IN, Pin.PULL_UP),
+    Pin(2, Pin.IN, Pin.PULL_UP),
+    Pin(3, Pin.IN, Pin.PULL_UP),
+]
+
+
+# ======================
+# MAIN LOOP
+# ======================
+last = 0
+
+while True:
+    now = time.ticks_ms()
+
+    if time.ticks_diff(now, last) > 2000:
+        data = {
+            "device": DEVICE_ID,
+            "din0": bool(pins[0].value()),
+            "din1": bool(pins[1].value()),
+            "din2": bool(pins[2].value()),
+            "din3": bool(pins[3].value()),
+        }
+
+        payload = json.dumps(data)
+        print(payload)
+
+        try:
+            mqtt.publish(TOPIC, payload)
+        except Exception as e:
+            print("Publish error:", e)
+
+            try:
+                mqtt.disconnect()
+            except:
+                pass
+
+            mqtt = connect_mqtt()
+
+        last = now
+
+    time.sleep(0.1)
