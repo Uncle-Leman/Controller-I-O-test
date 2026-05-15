@@ -26,7 +26,7 @@ MQTT_PASSWORD = config.MQTT_PASSWORD
 # ======================
 # AUTO REBOOT CONFIG
 # ======================
-REBOOT_INTERVAL_MS = 10 * 60 * 1000   # 10 minutes
+REBOOT_INTERVAL_MS = 2 * 60 * 1000   # 10 minutes
 boot_time = time.ticks_ms()
 
 
