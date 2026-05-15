@@ -117,10 +117,10 @@ while True:
     # Publish DIN every 2 seconds
     if time.ticks_diff(now, last_publish) > 2000:
         data = {
-            "din0": bool(pins[0].value()),
-            "din1": bool(pins[1].value()),
             "din2": bool(pins[2].value()),
             "din3": bool(pins[3].value()),
+            "din0": bool(pins[0].value()),
+            "din1": bool(pins[1].value()),
         }
 
         payload = json.dumps(data)
