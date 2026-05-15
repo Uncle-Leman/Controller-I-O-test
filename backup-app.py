@@ -70,7 +70,6 @@ while True:
 
     if time.ticks_diff(now, last) > 2000:
         data = {
-            "device": DEVICE_ID,
             "din0": bool(pins[0].value()),
             "din1": bool(pins[1].value()),
             "din2": bool(pins[2].value()),
