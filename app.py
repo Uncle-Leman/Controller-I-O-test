@@ -1,5 +1,6 @@
 import time
 import json
+import machine
 from machine import Pin
 from umqtt.simple import MQTTClient
 
@@ -20,6 +21,13 @@ MQTT_BROKER = config.MQTT_BROKER
 MQTT_PORT = config.MQTT_PORT
 MQTT_USERNAME = config.MQTT_USERNAME
 MQTT_PASSWORD = config.MQTT_PASSWORD
+
+
+# ======================
+# AUTO REBOOT CONFIG
+# ======================
+REBOOT_INTERVAL_MS = 10 * 60 * 1000   # 10 minutes
+boot_time = time.ticks_ms()
 
 
 # ======================
@@ -46,6 +54,40 @@ def connect_mqtt():
             time.sleep(2)
 
 
+# ======================
+# SAFE SOFT REBOOT
+# ======================
+def reboot_controller(reason="Scheduled reboot"):
+    print("\n======================")
+    print(reason)
+    print("Controller will reboot now...")
+    print("======================")
+
+    try:
+        mqtt.publish(
+            TOPIC + "/status",
+            json.dumps({
+                "device": DEVICE_ID,
+                "status": "rebooting",
+                "reason": reason
+            })
+        )
+    except Exception as e:
+        print("Failed to publish reboot status:", e)
+
+    try:
+        mqtt.disconnect()
+    except:
+        pass
+
+    time.sleep(1)
+
+    try:
+        machine.soft_reset()
+    except AttributeError:
+        machine.reset()
+
+
 mqtt = connect_mqtt()
 
 
@@ -63,12 +105,17 @@ pins = [
 # ======================
 # MAIN LOOP
 # ======================
-last = 0
+last_publish = 0
 
 while True:
     now = time.ticks_ms()
 
-    if time.ticks_diff(now, last) > 2000:
+    # Auto reboot every 10 minutes
+    if time.ticks_diff(now, boot_time) >= REBOOT_INTERVAL_MS:
+        reboot_controller("Auto reboot after 10 minutes")
+
+    # Publish DIN every 2 seconds
+    if time.ticks_diff(now, last_publish) > 2000:
         data = {
             "din0": bool(pins[0].value()),
             "din1": bool(pins[1].value()),
@@ -91,6 +138,6 @@ while True:
 
             mqtt = connect_mqtt()
 
-        last = now
+        last_publish = now
 
     time.sleep(0.1)
